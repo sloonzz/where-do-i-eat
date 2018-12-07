@@ -6,6 +6,7 @@ import router from "./router/router";
 import axios from "axios";
 
 window.axios = axios;
+window.$router = router;
 
 Vue.config.productionTip = false;
 
