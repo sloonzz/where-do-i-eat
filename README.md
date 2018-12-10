@@ -1,4 +1,4 @@
-# where_do_i_eat
+# where-do-i-eat
 
 > A simple web application that suggests to the user where to eat depending on their location. It uses Google Maps API and Vue.
 
