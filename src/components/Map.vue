@@ -9,6 +9,7 @@
           v-if="this.chosenDistanceMessage.length > 0 && this.distanceToFoodPlace > 0"
         >{{this.chosenDistanceMessage[0] + this.distanceToFoodPlace + " meters" + this.chosenDistanceMessage[1]}}</h3>
         <h4 v-if="this.chosenLocation.rating">{{this.chosenLocation.rating}} / 5.0</h4>
+        <input id="pac-input" class="controls" type="text" placeholder="Search Box">
         <div id="map"></div>
         <br>
         <button
@@ -23,6 +24,34 @@
 <script>
 export default {
   methods: {
+    initializeAutoComplete() {
+      // Create the search box and link it to the UI element.
+      let input = document.getElementById("pac-input");
+      let searchBox = new google.maps.places.SearchBox(input);
+      this.map.controls[google.maps.ControlPosition.TOP_LEFT].push(input);
+      let vm = this;
+      // // Bias the SearchBox results towards current map's viewport.
+      // this.map.addListener("bounds_changed", function() {
+      //   searchBox.setBounds(this.map.getBounds());
+      // });
+
+      // Listen for the event fired when the user selects a prediction and retrieve
+      // more details for that place.
+      searchBox.addListener("places_changed", function() {
+        let places = searchBox.getPlaces();
+        $router.push({
+          path: "/",
+          query: {
+            lat: places[0].geometry.location.lat(),
+            lng: places[0].geometry.location.lng()
+          }
+        });
+        vm.initializePositionThenPick();
+        if (places.length == 0) {
+          return;
+        }
+      });
+    },
     pickFoodPlaceWithDelay(pos, delay) {
       this.loading = true;
       setTimeout(() => {
@@ -58,15 +87,21 @@ export default {
       return marker;
     },
     createMarkerOnPosition(position) {
-      let marker = new google.maps.Marker({
+      if (Object.keys(this.currentLocationMarker).length) {
+        this.currentLocationMarker.setMap(null);
+      }
+      this.currentLocationMarker = new google.maps.Marker({
         map: this.map,
         position: position
       });
-      let infowindow = new google.maps.InfoWindow();
+      if (Object.keys(this.currentLocationInfoWindow).length) {
+        this.currentLocationInfoWindow.close();
+      }
+      this.currentLocationInfoWindow = new google.maps.InfoWindow();
       let vm = this;
 
-      infowindow.setContent("You are HERE.");
-      infowindow.open(this.map, marker);
+      this.currentLocationInfoWindow.setContent("You are HERE.");
+      this.currentLocationInfoWindow.open(this.map, this.currentLocationMarker);
     },
     navGetCurrentPosition(options) {
       return new Promise((resolve, reject) => {
@@ -107,29 +142,37 @@ export default {
     initializePositionThenPick() {
       let pos;
       let vm = this;
-      this.navGetCurrentPosition()
-        .then(position => {
-          if (vm.$route.query.lat && vm.$route.query.lng) {
-            pos = {
-              lat: parseFloat(vm.$route.query.lat),
-              lng: parseFloat(vm.$route.query.lng)
-            };
-          } else {
-            pos = {
-              lat: position.coords.latitude,
-              lng: position.coords.longitude
-            };
-          }
-        })
-        .then(() => {
-          vm.searchNearbyThenPickFoodPlace(pos).then(() => {
-            vm.createMarkerOnPosition(pos);
-            vm.currentPosition = pos;
+      this.markers.forEach(marker => {
+        marker.setMap(null);
+      });
+      this.markers = [];
+      return new Promise((resolve, reject) => {
+        this.navGetCurrentPosition()
+          .then(position => {
+            if (vm.$route.query.lat && vm.$route.query.lng) {
+              pos = {
+                lat: parseFloat(vm.$route.query.lat),
+                lng: parseFloat(vm.$route.query.lng)
+              };
+            } else {
+              pos = {
+                lat: position.coords.latitude,
+                lng: position.coords.longitude
+              };
+            }
+            resolve();
+          })
+          .then(() => {
+            vm.searchNearbyThenPickFoodPlace(pos).then(() => {
+              vm.createMarkerOnPosition(pos);
+              vm.currentPosition = pos;
+            });
+          })
+          .catch(error => {
+            console.log(error);
+            reject(error);
           });
-        })
-        .catch(error => {
-          console.log(error);
-        });
+      });
     },
     chooseFromLocations() {
       let index = Math.floor(Math.random() * this.locations.length);
@@ -167,6 +210,8 @@ export default {
       chosenLocation: {},
       chosenMarker: {},
       chosenInfowindow: {},
+      currentLocationMarker: {},
+      currentLocationInfoWindow: {},
       suggestionMessages: [
         ["Hey, you should give ", " a try!"],
         ["Why not ", "?"],
@@ -213,7 +258,7 @@ export default {
     // Initialize places service.
     this.service = new google.maps.places.PlacesService(this.map);
     // Get current position.
-    this.initializePositionThenPick();
+    this.initializePositionThenPick().then(this.initializeAutoComplete());
   }
 };
 </script>
