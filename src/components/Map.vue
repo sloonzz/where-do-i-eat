@@ -1,18 +1,37 @@
 <template>
   <div>
-    <h2
-      v-if="this.chosenSuggestionMessage.length > 0"
-    >{{this.chosenSuggestionMessage[0] + this.chosenLocation.name + this.chosenSuggestionMessage[1]}}</h2>
-    <h3
-      v-if="this.chosenDistanceMessage.length > 0 && this.distanceToFoodPlace > 0"
-    >{{this.chosenDistanceMessage[0] + this.distanceToFoodPlace + " meters" + this.chosenDistanceMessage[1]}}</h3>
-    <div id="map"></div>
+    <transition name="entrance">
+      <div v-show="!loading">
+        <h2
+          v-if="this.chosenSuggestionMessage.length > 0"
+        >{{this.chosenSuggestionMessage[0] + this.chosenLocation.name + this.chosenSuggestionMessage[1]}}</h2>
+        <h3
+          v-if="this.chosenDistanceMessage.length > 0 && this.distanceToFoodPlace > 0"
+        >{{this.chosenDistanceMessage[0] + this.distanceToFoodPlace + " meters" + this.chosenDistanceMessage[1]}}</h3>
+        <h4 v-if="this.chosenLocation.rating">{{this.chosenLocation.rating}} / 5.0</h4>
+        <div id="map"></div>
+        <br>
+        <button
+          @click.prevent="pickFoodPlaceWithDelay(currentPosition, 200)"
+          class="btn"
+        >Pick again!</button>
+      </div>
+    </transition>
   </div>
 </template>
 
 <script>
 export default {
   methods: {
+    pickFoodPlaceWithDelay(pos, delay) {
+      this.loading = true;
+      setTimeout(() => {
+        this.chooseFromLocations();
+        this.chooseFromMessages();
+        this.chooseFromDistanceMessages();
+        this.loading = false;
+      }, delay);
+    },
     createMarkerOnPlace(place) {
       let placeLoc = place.geometry.location;
       let marker = new google.maps.Marker({
@@ -54,30 +73,36 @@ export default {
         navigator.geolocation.getCurrentPosition(resolve, reject, options);
       });
     },
-    pickFoodPlace(pos) {
+    searchNearbyThenPickFoodPlace(pos) {
       let vm = this;
-      vm.map.setCenter(pos);
-      vm.service.nearbySearch(
-        {
-          location: pos,
-          radius: vm.radius,
-          type: vm.type
-        },
-        (results, status) => {
-          if (status === google.maps.places.PlacesServiceStatus.OK) {
-            vm.markers.length = 0;
-            vm.locations.length = 0;
-            vm.infowindows.length = 0;
-            for (let i = 0; i < results.length; i++) {
-              vm.markers.push(vm.createMarkerOnPlace(results[i]));
-              vm.locations.push(results[i]);
+      vm.loading = true;
+      return new Promise((resolve, reject) => {
+        vm.map.setCenter(pos);
+        vm.service.nearbySearch(
+          {
+            location: pos,
+            radius: vm.radius,
+            type: vm.type
+          },
+          (results, status) => {
+            if (status === google.maps.places.PlacesServiceStatus.OK) {
+              vm.markers.length = 0;
+              vm.locations.length = 0;
+              for (let i = 0; i < results.length; i++) {
+                vm.markers.push(vm.createMarkerOnPlace(results[i]));
+                vm.locations.push(results[i]);
+              }
+              vm.chooseFromLocations();
+              vm.chooseFromMessages();
+              vm.chooseFromDistanceMessages();
+              vm.loading = false;
+              resolve();
+            } else {
+              reject();
             }
-            vm.chooseFromLocations();
-            vm.chooseFromMessages();
-            vm.chooseFromDistanceMessages();
           }
-        }
-      );
+        );
+      });
     },
     initializePositionThenPick() {
       let pos;
@@ -97,9 +122,10 @@ export default {
           }
         })
         .then(() => {
-          vm.pickFoodPlace(pos);
-          vm.createMarkerOnPosition(pos);
-          vm.currentPosition = pos;
+          vm.searchNearbyThenPickFoodPlace(pos).then(() => {
+            vm.createMarkerOnPosition(pos);
+            vm.currentPosition = pos;
+          });
         })
         .catch(error => {
           console.log(error);
@@ -109,9 +135,14 @@ export default {
       let index = Math.floor(Math.random() * this.locations.length);
       this.chosenLocation = this.locations[index];
       this.chosenMarker = this.markers[index];
+      this.map.setCenter(this.chosenLocation.geometry.location);
+      this.infowindows.forEach(infowindow => {
+        infowindow.close();
+      });
       this.chosenInfowindow = new google.maps.InfoWindow();
       this.chosenInfowindow.setContent(this.chosenLocation.name);
       this.chosenInfowindow.open(this.map, this.chosenMarker);
+      this.infowindows.push(this.chosenInfowindow);
     },
     chooseFromMessages() {
       let index = Math.floor(Math.random() * this.suggestionMessages.length);
@@ -138,7 +169,7 @@ export default {
       chosenInfowindow: {},
       suggestionMessages: [
         ["Hey, you should give ", " a try!"],
-        ["Why not, ", "?"],
+        ["Why not ", "?"],
         ["I heard ", " serves good food."],
         ["Have you tried ", "?"],
         ["And our lucky winner is: ", "."]
@@ -149,7 +180,9 @@ export default {
         ["It's only ", " away from you!"],
         ["Care to drive for ", "?"]
       ],
-      chosenDistanceMessage: []
+      chosenDistanceMessage: [],
+      loading: true,
+      pinpointingLocation: false
     };
   },
   computed: {
@@ -190,5 +223,19 @@ export default {
   height: 400px;
   width: 100%;
 }
-</style>
 
+.entrance-enter,
+.entrance-leave-to {
+  opacity: 0;
+}
+
+.entrance-enter-active,
+.entrance-leave-active {
+  transition: opacity 200ms ease-out;
+}
+
+.entrance-enter-to,
+.entrance-leave {
+  opacity: 1;
+}
+</style>
